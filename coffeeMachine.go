@@ -95,29 +95,30 @@ func (c *CoffeeMachine) makeBeverage() {
 	c.lock = sync.RWMutex{}
 	//fmt.Println(min(c.OutletNo.Count,len(c.order)))
 	wg.Add(min(c.OutletNo.Count, len(c.order)))
+	mux := sync.RWMutex{}
 	for outlet := 0; outlet < c.OutletNo.Count && outlet < len(c.order); outlet++ {
 		// spins up new goroutine for every order and with empty outlet
 		//c.Lock()
-		go c.cookBeverage(c.order[outlet], wg)
+		go c.cookBeverage(c.order[outlet], wg, &mux)
 		//c.Unlock()
 	}
 	wg.Wait()
 	//time.Sleep(5*time.Second)
 }
 
-func (c *CoffeeMachine) cookBeverage(order order, wg *sync.WaitGroup) {
+func (c *CoffeeMachine) cookBeverage(order order, wg *sync.WaitGroup, mapMutex *sync.RWMutex) {
 	defer wg.Done()
 	//mapMutex := sync.Mutex{}
 	//fmt.Printf("Cooking %s\n",order.name)
 	for item, value := range order.item {
-		//mapMutex.Lock()
+		mapMutex.Lock()
 		if _, ok := c.inventory[item]; ok == false {
 			fmt.Printf("%s cannot be prepare because %s is not available\n", order.name, item)
-			//mapMutex.Unlock()
+			mapMutex.Unlock()
 			return
 		} else {
 			if value > c.getValue(item) {
-				//mapMutex.Unlock()
+				mapMutex.Unlock()
 				//fmt.Println(order.name, item, value,c.inventory[item])
 				fmt.Printf("%s cannot be prepare because %s is not sufficient\n", order.name, item)
 				return
@@ -126,9 +127,9 @@ func (c *CoffeeMachine) cookBeverage(order order, wg *sync.WaitGroup) {
 			//mapMutex.Lock()
 			c.setValue(item, value)
 			//c.inventory[item] = c.inventory[item] - value
-			//mapMutex.Unlock()
 			//c.Unlock()
 		}
+		mapMutex.Unlock()
 	}
 	fmt.Printf("%s is prepared\n", order.name)
 }
