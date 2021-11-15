@@ -30,7 +30,8 @@ type CoffeeMachine struct {
 func (c *CoffeeMachine) getValue(key string) int {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return c.inventory[key]
+	temp := c.inventory[key]
+	return temp
 }
 
 func (c *CoffeeMachine) setValue(key string, val int) {
@@ -93,42 +94,42 @@ func min(a, b int) int {
 func (c *CoffeeMachine) makeBeverage() {
 	wg := new(sync.WaitGroup)
 	c.lock = sync.RWMutex{}
-	//fmt.Println(min(c.OutletNo.Count,len(c.order)))
-	wg.Add(min(c.OutletNo.Count, len(c.order)))
-	for outlet := 0; outlet < c.OutletNo.Count && outlet < len(c.order); outlet++ {
-		// spins up new goroutine for every order and with empty outlet
-		//c.Lock()
-		go c.cookBeverage(c.order[outlet], wg)
-		//c.Unlock()
+
+	chnl := make(chan int, c.OutletNo.Count)
+	for outlet := 0; outlet < len(c.order); outlet++ {
+		wg.Add(1)
+		go c.cookBeverage(c.order[outlet], wg, chnl)
 	}
 	wg.Wait()
-	//time.Sleep(5*time.Second)
 }
 
-func (c *CoffeeMachine) cookBeverage(order order, wg *sync.WaitGroup) {
+func (c *CoffeeMachine) cookBeverage(order order, wg *sync.WaitGroup, chnl chan int) {
 	defer wg.Done()
-	//mapMutex := sync.Mutex{}
-	//fmt.Printf("Cooking %s\n",order.name)
-	for item, value := range order.item {
-		//mapMutex.Lock()
+	chnl <- 1
+	key := []string{}
+	for item, _ := range order.item {
+		key = append(key, item)
 		if _, ok := c.inventory[item]; ok == false {
 			fmt.Printf("%s cannot be prepare because %s is not available\n", order.name, item)
-			//mapMutex.Unlock()
+			<-chnl
 			return
-		} else {
-			if value > c.getValue(item) {
-				//mapMutex.Unlock()
-				//fmt.Println(order.name, item, value,c.inventory[item])
-				fmt.Printf("%s cannot be prepare because %s is not sufficient\n", order.name, item)
-				return
-			}
-			//mapMutex.RUnlock()
-			//mapMutex.Lock()
-			c.setValue(item, value)
-			//c.inventory[item] = c.inventory[item] - value
-			//mapMutex.Unlock()
-			//c.Unlock()
 		}
 	}
+	for idx := 0; idx < len(key); idx++ {
+		item := key[idx]
+		value := order.item[key[idx]]
+		if value > c.getValue(key[idx]) {
+			fmt.Printf("%s cannot be prepare because %s is not sufficient\n", order.name, item)
+			// Rollback all the changes
+			for idx > 0 {
+				c.setValue(item, -value)
+				idx--
+			}
+			<-chnl
+			return
+		}
+		c.setValue(item, value)
+	}
 	fmt.Printf("%s is prepared\n", order.name)
+	<-chnl
 }
